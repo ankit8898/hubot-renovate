@@ -119,7 +119,7 @@ module.exports = (robot) ->
     result = ':realtor: CORE WEB FEATURE BOXES :realtor: \n\n' ;
     for own feature, name of checkouts
       result = result.concat("> *#{name}* checked out #{feature}\n");
-    result = result.concat("\n\n> Any *feature* not listed is free for the taking! :mk-subzero:")
+    result = result.concat("\n\n> Any *feature* not listed is free for the taking! :parrotcop: ")
     res.send result 
 
   robot.respond /who checked out (.*)\??/i, (res) ->
@@ -134,7 +134,7 @@ module.exports = (robot) ->
     result = ':realtor: CORE WEB FEATURE BOXES :realtor: \n\n' ;
     for own feature, name of checkouts
       result = result.concat("> *#{name}* checked out #{feature}\n");
-    result = result.concat("\n\n> Any *feature* not listed is free for the taking! :mk-subzero:")
+    result = result.concat("\n\n> Any *feature* not listed is free for the taking! :parrotcop: ")
     res.send result 
 
   robot.respond /nuke (feature )?(.*)/i, (res) ->
