@@ -185,13 +185,16 @@ module.exports = (robot) ->
 
   robot.respond /show checkouts/i, (res) ->
     result = ':realtor: CORE WEB FEATURE BOXES :realtor: \n\n'
-    checkouts = new Checkouts(robot)
 
-    checkouts.each (feature, meta) =>
-      since = (new ReadableTimeDiff(meta['when'])).toString()
-      result += "> *#{meta['who']}* checked out *#{feature}* for #{since}\n"
+    if robot.brain.get('featuresv2')
+      (new Checkouts(robot)).each (feature, meta) =>
+        since = (new ReadableTimeDiff(meta['when'])).toString()
+        result += "> *#{meta['who']}* checked out *#{feature}* for #{since}\n"
+    else
+      for feature, name of robot.brain.get('features')
+        result += "> *#{name}* checked out *#{feature}*\n"
 
-    result += "\n\n> Any *feature* not listed is free for the taking! :parrotcop: "
+    result += "\n\n> Any *feature* not listed is free for the taking! :parrotcop:"
     res.send result
 
   robot.respond /nuke (feature )?(.*)/i, (res) ->
