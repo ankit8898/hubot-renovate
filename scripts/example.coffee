@@ -1,3 +1,65 @@
+# A little helper class to convert timestamp diffs into more readable messages.
+class ReadableTimeDiff
+  constructor: (@timestamp) ->
+
+  # Converts the difference between the timestamps to a readable format.
+  toString: ->
+    lookup = { weeks: 604800, days: 86400, hours: 3600, minutes: 60, seconds: 1 }
+    result = []
+    diff = ((new Date).getTime() - @timestamp) / 1000 # milliseconds -> seconds
+    for label, value of lookup
+      units = parseInt(diff / value)
+      diff -= units * value
+      result.push("#{units} #{label}") if units > 0
+    result.join(', ')
+
+# Provides helper methods for dealing with checkouts.
+class Checkouts
+  constructor: (@robot) ->
+    @features = @robot.brain.get('featuresv2') || {}
+
+  persist: ->
+    @robot.brain.set('featuresv2', @features)
+
+  # Simple setter, no logic.
+  set: (which, who) ->
+    @features[which] = {
+      who: who,
+      when: (new Date).getTime()
+    }
+
+  delete: (which) ->
+    delete @features[which]
+
+  get: (which) ->
+    @features[which]
+
+  who: (which) ->
+    (@get(which) || {})['who']
+
+  when: (which) ->
+    (@get(which) || {})['when']
+
+  # Hubot is stuck at CoffeeScript 1.6.3, so no generators D:
+  each: (callback) ->
+    for key, value of @features
+      callback(key, value)
+
+  # Temporary method to ensure all the values are migrated to hashes. After this
+  # runs once, it should be removed. Hubot doesn't support migrations...
+  migrate: (res) ->
+    if @robot.brain.get('featuresv2')
+      return res.send "Cannot migrate, `featuresv2` is populated! :scream:"
+
+    legacy = @robot.brain.get('features') || {}
+    for key, value of legacy
+      if typeof value is 'string'
+        @set(key, value)
+        res.send ":white_check_mark: {`#{key}` => `#{value}`}"
+      else
+        res.send ":negative_squared_cross_mark: key `#{key}`, value `#{value}`"
+    @persist()
+
 # Description:
 #   Example scripts for you to examine and try out.
 #
@@ -7,9 +69,7 @@
 #   Uncomment the ones you want to try and experiment with.
 #
 #   These are from the scripting documentation: https://github.com/github/hubot/blob/master/docs/scripting.md
-
 module.exports = (robot) ->
-
   robot.hear /badger/i, (res) ->
     res.send "Badgers? BADGERS? WE DON'T NEED NO STINKIN BADGERS"
 
@@ -114,42 +174,42 @@ module.exports = (robot) ->
   robot.respond /wake me up when september ends/i, (res) ->
     res.reply 'Deployyyyyyy....... to production :D'
 
-  robot.respond /ankit/i, (res) ->
-    checkouts = robot.brain.get('features')
-    result = ':realtor: CORE WEB FEATURE BOXES :realtor: \n\n' ;
-    for own feature, name of checkouts
-      result = result.concat("> *#{name}* checked out #{feature}\n");
-    result = result.concat("\n\n> Any *feature* not listed is free for the taking! :parrotcop: ")
-    res.send result 
+  robot.respond /migrate features/, (res) ->
+    res.send "Migrating to the new DB format (key `featuresv2`)..."
+    (new Checkouts(robot)).migrate(res)
+    res.send "Completed migration :tayne:"
 
   robot.respond /who checked out (.*)\??/i, (res) ->
     feature = res.match[1]
-    checkouts = robot.brain.get("features") || {}
-    name = checkouts[feature] || 'nobody'
-
-    res.send "#{name} checked out #{feature}"
+    res.send "#{new Checkouts(robot).who(feature)} checked out #{feature}"
 
   robot.respond /show checkouts/i, (res) ->
-    checkouts = robot.brain.get('features')
-    result = ':realtor: CORE WEB FEATURE BOXES :realtor: \n\n' ;
-    for own feature, name of checkouts
-      result = result.concat("> *#{name}* checked out #{feature}\n");
-    result = result.concat("\n\n> Any *feature* not listed is free for the taking! :parrotcop: ")
-    res.send result 
+    result = ':realtor: CORE WEB FEATURE BOXES :realtor: \n\n'
+
+    if robot.brain.get('featuresv2')
+      (new Checkouts(robot)).each (feature, meta) =>
+        since = (new ReadableTimeDiff(meta['when'])).toString()
+        result += "> *#{meta['who']}* checked out *#{feature}* for #{since}\n"
+    else
+      for feature, name of robot.brain.get('features')
+        result += "> *#{name}* checked out *#{feature}*\n"
+
+    result += "\n\n> Any *feature* not listed is free for the taking! :parrotcop:"
+    res.send result
 
   robot.respond /nuke (feature )?(.*)/i, (res) ->
     user = res.message.user.name
     feature = res.match[2]
-    checkouts = robot.brain.get("features") || {}
-    checked_out = checkouts[feature] || 'nobody'
+    checkouts = new Checkouts(robot)
 
-    unless !!checkouts[feature]
-      res.send "Hey, #{user}, #{feature} doesn't exist..."
-      return
+    if !checkouts.get(feature)
+      return res.send "Hey, #{user}, #{feature} doesn't exist..."
+
+    checked_out = checkouts.who(feature) || 'nobody'
 
     if 'nobody' == checked_out || user == checked_out
-      delete checkouts[feature]
-      robot.brain.set("features", checkouts)
+      checkouts.delete(feature)
+      checkouts.persist()
       res.send "Nuked #{feature} from orbit :nuke:"
     else
       res.send "#{user} has checked out that feature, make them give it up first (or steal it)!"
@@ -157,31 +217,31 @@ module.exports = (robot) ->
   robot.respond /steal (.*)/i, (res) ->
     user = res.message.user.name
     feature = res.match[1]
-    checkouts = robot.brain.get("features") || {}
-    checked_out = checkouts[feature] || 'nobody'
+    checkouts = new Checkouts(robot)
+    checked_out = checkouts.who(feature)
 
-    if 'nobody' == checked_out
+    if checked_out?
+      checkouts.set(feature, user)
+      checkouts.persist()
+
+      res.send "Hey, @#{checked_out}, @#{user} stole #{feature} from you :feelsgood:"
+    else
       res.send "#{user} tried to steal something that doesn't exist :jimminy_cricket:"
-      return
-
-    checkouts[feature] = user
-    robot.brain.set("features", checkouts)
-    res.send "Hey, #{checked_out}, #{user} stole #{feature} from you :feelsgood:"
 
   robot.respond /check\s?out (.*)/i, (res) ->
     user = res.message.user.name
     feature = res.match[1]
-    checkouts = robot.brain.get("features") || {}
-    checked_out = checkouts[feature] || 'nobody'
+    checkouts = new Checkouts(robot)
+    checked_out = checkouts.who(feature) || 'nobody'
 
     if 'nobody' == checked_out
-      checkouts[feature] = user
-      robot.brain.set("features", checkouts)
-      res.send "#{user}, #{feature} is all yours!"
+      checkouts.set(feature, user)
+      res.send "#{feature} is all yours!"
     else
       if checked_out == user
-        checkouts[feature] = 'nobody'
-        robot.brain.set("features", checkouts)
+        checkouts.set(feature, 'nobody')
         res.send "#{feature} is now free for the taking!"
       else
         res.send "Sorry, #{checked_out} already checked out #{feature}."
+
+    checkouts.persist()
